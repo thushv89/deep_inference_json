@@ -25,8 +25,7 @@ def maybe_download(weight_url):
     raise NotImplementedError
 
 def load_weights_from_file(weight_file):
-    global logger
-    global sess
+    global logger, sess, graph
     global TF_SCOPES,WEIGHTS,BIASES
     '''
     Loads the weights from a file and assign them to tensorflow variables
@@ -48,17 +47,17 @@ def load_weights_from_file(weight_file):
     logger.debug('%s\n',var_shapes)
     build_vgg_variables(var_shapes)
 
+    tf_assign_ops = []
     for si,scope in enumerate(TF_SCOPES):
         logger.debug('\tAssigining values for scope %s',scope)
         with tf.variable_scope(scope,reuse=True):
             weight_key, bias_key = scope + '_W', scope + '_b'
             sess.run(tf.assign(tf.get_variable(TF_WEIGHTS_STR),weights[weight_key]))
-            #del weights[weight_key]
             sess.run(tf.assign(tf.get_variable(TF_BIAS_STR), weights[bias_key]))
-            #del weights[bias_key]
+
 
     del weights
-    #return tf_var_assign_ops
+
 
 def build_vgg_variables(variable_shapes):
     '''
@@ -67,18 +66,19 @@ def build_vgg_variables(variable_shapes):
     :param variable_shapes: Shapes of the variables
     :return:
     '''
-    global logger
+    global logger,sess,graph
     global TF_SCOPES,WEIGHTS,BIASES
 
     logger.info("Building VGG Variables (Tensorflow)...")
-    for si,scope in enumerate(TF_SCOPES):
-        with tf.variable_scope(scope):
-            weight_key, bias_key = TF_SCOPES[si]+'_W', TF_SCOPES[si]+'_b'
-            weights = tf.get_variable(TF_WEIGHTS_STR, variable_shapes[weight_key],
-                                      initializer=tf.constant_initializer(0.0))
-            bias = tf.get_variable(TF_BIAS_STR, variable_shapes[bias_key],
-                                   initializer = tf.constant_initializer(0.0))
-            WEIGHTS[TF_SCOPES[si]], BIASES[TF_SCOPES[si]] = weights, bias
+    with graph.as_default():
+        for si,scope in enumerate(TF_SCOPES):
+            with tf.variable_scope(scope):
+                weight_key, bias_key = TF_SCOPES[si]+'_W', TF_SCOPES[si]+'_b'
+                weights = tf.get_variable(TF_WEIGHTS_STR, variable_shapes[weight_key],
+                                          initializer=tf.constant_initializer(0.0))
+                bias = tf.get_variable(TF_BIAS_STR, variable_shapes[bias_key],
+                                       initializer = tf.constant_initializer(0.0))
+                WEIGHTS[TF_SCOPES[si]], BIASES[TF_SCOPES[si]] = weights, bias
 
 
 def infererence(tf_inputs):
@@ -112,10 +112,12 @@ def infererence(tf_inputs):
     return out
 
 
-def preprocess_inputs(filenames):
-
-    with tf.name_scope('preprocess'):
+def preprocess_inputs(filenames, batch_size):
+    global graph
+    logger.info('Received filenames: %s',filenames)
+    with graph.as_default() and tf.name_scope('preprocess'):
         # FIFO Queue of file names
+        # creates a FIFO queue until the reader needs them
         filename_queue = tf.train.string_input_producer(filenames, capacity=10)
 
         # Reader which takes a filename queue and read() which outputs data one by one
@@ -134,7 +136,7 @@ def preprocess_inputs(filenames):
 
         # The batching mechanism that takes a output produced by reader (with preprocessing) and outputs a batch tensor
         # [batch_size, height, width, depth] 4D tensor
-        image_batch = tf.train.batch([std_image], batch_size = 1, capacity = 10, name='image_batch')
+        image_batch = tf.train.batch([std_image], batch_size = batch_size, capacity = 10, name='image_batch')
 
         # to use record reader we need to use a Queue either random
 
@@ -144,10 +146,10 @@ def preprocess_inputs(filenames):
 logging_level = logging.DEBUG
 logging_format = '[%(name)s] [%(funcName)s] %(message)s'
 
-sess = None
 TF_SCOPES = ['conv1_1','conv1_2','conv2_1','conv2_2','conv3_1','conv3_2','conv3_3',
              'conv4_1','conv4_2','conv4_3','conv5_1','conv5_2','conv5_3',
              'fc6','fc7','fc8']
+
 MAX_POOL_INDICES = [1,3,6,9,12]
 
 TF_WEIGHTS_STR = 'weights'
@@ -156,46 +158,43 @@ TF_BIAS_STR = 'bias'
 WEIGHTS = {}
 BIASES = {}
 
-if __name__=='__main__':
+logger = logging.getLogger('Logger')
+logger.setLevel(logging.DEBUG)
+console = logging.StreamHandler(sys.stdout)
+console.setFormatter(logging.Formatter(logging_format))
+console.setLevel(logging_level)
+logger.addHandler(console)
 
-    logger = logging.getLogger('Logger')
-    logger.setLevel(logging.DEBUG)
-    console = logging.StreamHandler(sys.stdout)
-    console.setFormatter(logging.Formatter(logging_format))
-    console.setLevel(logging_level)
-    logger.addHandler(console)
+graph = tf.get_default_graph()
+sess = tf.Session(graph=graph)
 
-    with tf.Session() as sess:
+def infer_from_vgg(filenames,batch_size):
+    global sess,logger
 
-        tf.global_variables_initializer().run()
+    with sess.as_default() and graph.as_default():
+
         load_weights_from_file('vgg16_weights.npz')
-
-        image_height,image_width,image_depth = 224,224,3
-
-        batch_size = 1
-
-        #coord = tf.train.Coordinator()
-        #threads = tf.train.start_queue_runners(coord=coord)
-
-        # creates a FIFO queue until the reader needs them
-
-        filenames = ['cat.jpg', 'dog.jpg','scorpion.jpg']
+        #sess.run(tf.global_variables_initializer())
 
         # ================================== VERY IMPORTANT ==================================
         # Defining the coordinator and startring queue runner should happen ONLY AFTER you define your queues
         # i.e. preprocess_inputs(...) Otherwise the process will hang forever
         # https://stackoverflow.com/questions/35274405/tensorflow-training-using-input-queue-gets-stuck
-        tf_images = preprocess_inputs(filenames)
+        tf_images = preprocess_inputs(filenames,batch_size)
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(coord=coord, sess=sess)
 
         tf_prediction = infererence(tf_images)
-        for i in range(3):
+        prediction_list, confidence_list = [],[]
+        for i in range(len(filenames)//batch_size):
             #images = sess.run(tf_images)
             pred = sess.run(tf_prediction)
 
-            logger.info('Class: %d (%s)',np.argmax(pred),imagenet_classes.class_names[np.argmax(pred)])
-            logger.info('Confidence: %.2f',np.max(pred))
+            #logger.info('Class: %d (%s)',np.argmax(pred,axis=1),imagenet_classes.class_names[np.argmax(pred,axis=1)])
+            #logger.info('Confidence: %.2f',np.max(pred))
+
+            prediction_list.extend(list(np.argmax(pred,axis=1).astype(np.int8)))
+            confidence_list.extend(list(np.max(pred,axis=1)))
 
         #plt.imshow(images[0])
         #plt.show()
@@ -204,6 +203,7 @@ if __name__=='__main__':
         coord.request_stop()
         coord.join(threads)
 
+        return prediction_list,confidence_list
         #print(images)
         #plt.imshow(images)
 
