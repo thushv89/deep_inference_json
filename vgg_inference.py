@@ -19,10 +19,29 @@ import sys
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import imagenet_classes
+from math import ceil
+import os
+import urllib
+from PIL import Image
 
 # call this method if the weight file is not found
-def maybe_download(weight_url):
-    raise NotImplementedError
+def maybe_download(weight_filename):
+    global logger
+
+    if not os.path.exists(weight_filename):
+        filename, _ = urllib.request.urlretrieve('https://www.cs.toronto.edu/~frossard/vgg16/vgg16_weights.npz', weight_filename)
+        logger.warning("The file exceeds 500MB in size. But is a necessity")
+    else:
+        logger.info('Found the weights file locally. No need to download')
+
+    statinfo = os.stat(weight_filename)
+    if statinfo.st_size > 512 * 1024 * 1024:
+        logger.info('Found and verified %s' % weight_filename)
+    else:
+        logger.info('File size: %d'%statinfo.st_size)
+        raise Exception(
+            'Failed to verify ' + weight_filename + '. Can you get to it with a browser? %s'%'https://www.cs.toronto.edu/~frossard/vgg16/vgg16_weights.npz')
+
 
 def load_weights_from_file(weight_file):
     global logger, sess, graph
@@ -35,6 +54,7 @@ def load_weights_from_file(weight_file):
 
     # download the weight file if not existing
     # also notify user of the size of the weight file (large)
+    maybe_download(weight_file)
     weights = np.load(weight_file)
     keys = sorted(weights.keys())
     var_shapes = {}
@@ -47,14 +67,26 @@ def load_weights_from_file(weight_file):
     logger.debug('%s\n',var_shapes)
     build_vgg_variables(var_shapes)
 
-    tf_assign_ops = []
-    for si,scope in enumerate(TF_SCOPES):
-        logger.debug('\tAssigining values for scope %s',scope)
-        with tf.variable_scope(scope,reuse=True):
-            weight_key, bias_key = scope + '_W', scope + '_b'
-            sess.run(tf.assign(tf.get_variable(TF_WEIGHTS_STR),weights[weight_key]))
-            sess.run(tf.assign(tf.get_variable(TF_BIAS_STR), weights[bias_key]))
+    with sess.as_default() and graph.as_default():
+        #tf.global_variables_initializer().run()
 
+        for si,scope in enumerate(TF_SCOPES):
+            logger.debug('\tAssigining values for scope %s',scope)
+            with tf.variable_scope(scope,reuse=True):
+                weight_key, bias_key = scope + '_W', scope + '_b'
+                tf_cond_weight_op = tf.cond(tf.reduce_all(tf.not_equal(tf.get_variable(TF_WEIGHTS_STR),tf.zeros(var_shapes[weight_key],dtype=tf.float32))),
+                                            lambda: tf.constant(-1,dtype=tf.float32),
+                                            lambda: tf.assign(tf.get_variable(TF_WEIGHTS_STR),weights[weight_key]),name='assign_weights_op')
+
+                tf_cond_bias_op = tf.cond(tf.reduce_all(tf.not_equal(tf.get_variable(TF_BIAS_STR),tf.zeros(var_shapes[bias_key],dtype=tf.float32))),
+                                          lambda: tf.constant(-1,dtype=tf.float32),
+                                          lambda: tf.assign(tf.get_variable(TF_BIAS_STR), weights[bias_key],name='assign_bias_op'))
+
+                _ = sess.run([tf_cond_weight_op,tf_cond_bias_op])
+
+            op_count = len(graph.get_operations())
+            var_count = len(tf.global_variables()) + len(tf.local_variables()) + len(tf.model_variables())
+            print(op_count,var_count)
 
     del weights
 
@@ -70,15 +102,28 @@ def build_vgg_variables(variable_shapes):
     global TF_SCOPES,WEIGHTS,BIASES
 
     logger.info("Building VGG Variables (Tensorflow)...")
-    with graph.as_default():
+    with sess.as_default and graph.as_default():
         for si,scope in enumerate(TF_SCOPES):
-            with tf.variable_scope(scope):
+            with tf.variable_scope(scope) as sc:
                 weight_key, bias_key = TF_SCOPES[si]+'_W', TF_SCOPES[si]+'_b'
-                weights = tf.get_variable(TF_WEIGHTS_STR, variable_shapes[weight_key],
-                                          initializer=tf.constant_initializer(0.0))
-                bias = tf.get_variable(TF_BIAS_STR, variable_shapes[bias_key],
-                                       initializer = tf.constant_initializer(0.0))
-                WEIGHTS[TF_SCOPES[si]], BIASES[TF_SCOPES[si]] = weights, bias
+
+                # Try Except because if you try get_variable with an intializer and
+                # the variable exists, you will get a ValueError saying the variable exists
+                #
+                try:
+                    weights = tf.get_variable(TF_WEIGHTS_STR, variable_shapes[weight_key],
+                                              initializer=tf.constant_initializer(0.0))
+                    bias = tf.get_variable(TF_BIAS_STR, variable_shapes[bias_key],
+                                           initializer = tf.constant_initializer(0.0))
+
+                    sess.run(tf.variables_initializer([weights,bias]))
+
+                except ValueError:
+                    #sc.reuse_variables()
+                    #weights = tf.get_variable(TF_WEIGHTS_STR)
+                    #bias = tf.get_variable(TF_BIAS_STR)
+                    logger.debug('Variables in scope %s already initialized'%scope)
+
 
 
 def infererence(tf_inputs):
@@ -86,7 +131,7 @@ def infererence(tf_inputs):
     global TF_SCOPES, TF_WEIGHTS_STR, TF_BIAS_STR, MAX_POOL_INDICES
 
     for si, scope in enumerate(TF_SCOPES):
-        with tf.variable_scope(scope,reuse=True):
+        with tf.variable_scope(scope,reuse=True) as sc:
             weight, bias = tf.get_variable(TF_WEIGHTS_STR), tf.get_variable(TF_BIAS_STR)
 
             if 'fc' not in scope:
@@ -113,12 +158,12 @@ def infererence(tf_inputs):
 
 
 def preprocess_inputs(filenames, batch_size):
-    global graph
+    global sess,graph
     logger.info('Received filenames: %s',filenames)
-    with graph.as_default() and tf.name_scope('preprocess'):
+    with sess.as_default() and graph.as_default() and tf.name_scope('preprocess'):
         # FIFO Queue of file names
         # creates a FIFO queue until the reader needs them
-        filename_queue = tf.train.string_input_producer(filenames, capacity=10)
+        filename_queue = tf.train.string_input_producer(filenames, capacity=10, shuffle=False)
 
         # Reader which takes a filename queue and read() which outputs data one by one
         reader = tf.WholeFileReader()
@@ -143,6 +188,9 @@ def preprocess_inputs(filenames, batch_size):
     print('Preprocessing done')
     return image_batch
 
+
+ops_created = False
+
 logging_level = logging.DEBUG
 logging_format = '[%(name)s] [%(funcName)s] %(message)s'
 
@@ -166,45 +214,75 @@ console.setLevel(logging_level)
 logger.addHandler(console)
 
 graph = tf.get_default_graph()
-sess = tf.Session(graph=graph)
+sess = tf.InteractiveSession(graph=graph)
 
 def infer_from_vgg(filenames,batch_size):
-    global sess,logger
+    global sess,graph,logger, ops_created
+    logger.info('Recieved filenames from webservice: %s'%filenames)
 
     with sess.as_default() and graph.as_default():
 
-        load_weights_from_file('vgg16_weights.npz')
-        #sess.run(tf.global_variables_initializer())
+        if not ops_created:
+            load_weights_from_file('vgg16_weights.npz')
+            ops_created = True
+        
 
         # ================================== VERY IMPORTANT ==================================
         # Defining the coordinator and startring queue runner should happen ONLY AFTER you define your queues
         # i.e. preprocess_inputs(...) Otherwise the process will hang forever
         # https://stackoverflow.com/questions/35274405/tensorflow-training-using-input-queue-gets-stuck
-        tf_images = preprocess_inputs(filenames,batch_size)
-        coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(coord=coord, sess=sess)
+        #tf_images = preprocess_inputs(filenames,batch_size)
+        #coord = tf.train.Coordinator()
+        #threads = tf.train.start_queue_runners(coord=coord, sess=sess)
 
-        tf_prediction = infererence(tf_images)
-        prediction_list, confidence_list = [],[]
-        for i in range(len(filenames)//batch_size):
-            #images = sess.run(tf_images)
-            pred = sess.run(tf_prediction)
+        image_batch = None
+        for fn in filenames:
+            im = Image.open(fn)
+            im.thumbnail((224,224), Image.ANTIALIAS)
 
-            #logger.info('Class: %d (%s)',np.argmax(pred,axis=1),imagenet_classes.class_names[np.argmax(pred,axis=1)])
-            #logger.info('Confidence: %.2f',np.max(pred))
+            im_arr = np.asarray(im,dtype=np.float32)
+            im_arr = (im_arr-np.mean(im_arr))/np.std(im_arr)
 
-            prediction_list.extend(list(np.argmax(pred,axis=1).astype(np.int8)))
+            im_shape = im_arr.shape
+
+            if im_shape[0]<224:
+                im_arr = np.append(im_arr,np.zeros((224-im_shape[0],im_shape[1],3),dtype=np.float32),axis=0)
+                im_shape = im_arr.shape
+            if im_shape[1]<224:
+                im_arr = np.append(im_arr,np.zeros((im_shape[0],224-im_shape[1],3),dtype=np.float32),axis=1)
+                print('sed')
+                print(im_arr.shape)
+            if image_batch is None:
+                image_batch = np.reshape(im_arr,(1,224,224,3))
+            else:
+                image_batch = np.append(image_batch,np.reshape(im_arr,(1,224,224,3)),axis=0)
+
+
+        tf_inputs = tf.placeholder(shape=[len(filenames),224,224,3],dtype=tf.float32)
+
+        tf_prediction = infererence(tf_inputs)
+        prediction_list, top_5_list, confidence_list = [],[],[]
+        for i in range(ceil(len(filenames)*1.0/batch_size)):
+            pred = sess.run(tf_prediction,feed_dict={tf_inputs:image_batch})
+
+            prediction_list.extend(list(np.argmax(pred,axis=1)))
             confidence_list.extend(list(np.max(pred,axis=1)))
+            top_5 = np.argsort(pred,axis=1)[:,995:]
+            top_5_list.append(list(top_5))
 
-        #plt.imshow(images[0])
-        #plt.show()
+        fname_pred_class_list = [imagenet_classes.class_names[pred] + ' (Save filename: ' + fname + ')' for fname,pred in zip(filenames,prediction_list)]
+        confidence_list = [float(ceil(conf*10000)/10000) for conf in confidence_list] # rounding to 4 decimal places
+
         print('Session ran')
 
-        coord.request_stop()
-        coord.join(threads)
+        #coord.request_stop()
+        #coord.join(threads)
 
-        return prediction_list,confidence_list
-        #print(images)
-        #plt.imshow(images)
+        #tf.reset_default_graph()
+        return fname_pred_class_list,confidence_list
 
+
+def reset_tensorflow_graph():
+    global sess,graph
+    pass
 
