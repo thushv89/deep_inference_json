@@ -1,22 +1,22 @@
 # Inferencing a Pre-trained VGG-16 Model for Custom Images
 
 ## Main Technical tools
-Tensorflow: 1.0.0
-Python: 3.4
+Tensorflow: 1.0.0  
+Python: 3.4  
 
 ## Other Dependencies
-Flask (web service)
-urllib (HTTP request handling)
-PIL (image processing)
+Flask (web service)  
+urllib (HTTP request handling)  
+PIL (image processing)  
 
 ## Available files
-imagenet_classes.py - Class names of the imagenet dataset
-vgg_inference.py - The script that loads the model and infer from it and return the class and confidence for an image
-query_service.py - The web service implemented with Flask
+imagenet_classes.py - Class names of the imagenet dataset  
+vgg_inference.py - The script that loads the model and infer from it and return the class and confidence for an image  
+query_service.py - The web service implemented with Flask  
 
 ## Introduction
 This repository implements a script for inferencing the classes of custom images using a pretrained deep network (VGG-16). The weights (parameters) are found [here](https://www.cs.toronto.edu/~frossard/post/vgg16/)
-The architecture of the model can be found in this [paper](https://arxiv.org/pdf/1409.1556.pdf)
+The architecture of the model can be found in this [paper](https://arxiv.org/pdf/1409.1556.pdf)  
 
 ## How to run
 1. Run the script query_service.py 
