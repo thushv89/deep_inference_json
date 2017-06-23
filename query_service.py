@@ -25,7 +25,7 @@ def get_url_from_json():
     infor_dict = download_image(url)
     filename = [infor_dict['saved_as']]
 
-    pred,conf = infer_vgg(filename,1)
+    pred,conf = infer_vgg(filename)
     result = {"url": url, "class": pred[0], "confidence": float(conf[0])}
 
     return jsonify({'download_status': infor_dict, 'result': result})
@@ -86,7 +86,7 @@ infer_filenames = []
 def reset_tf_graph():
     vgg_inference.reset_tensorflow_graph()
 
-def download_image(url):
+def download_image(url,filename=None,extension=None):
     global image_index
     error = 'None'
     success = False
@@ -100,13 +100,20 @@ def download_image(url):
             if file_extension=='jpeg':
                 file_extension = 'jpg'
 
-            urllib.request.urlretrieve(url, "image-%d.%s"%(image_index,file_extension))
+            if not filename:
+                urllib.request.urlretrieve(url, "image-%d.%s"%(image_index,file_extension))
+            else:
+                urllib.request.urlretrieve(url, "%s.%s" % (filename, file_extension))
+
         except urllib.error.HTTPError as e1:
             error = 'A HTTP Error occured (%d)'%e1.code
         except urllib.error.URLError as e2:
             error = 'A URL error occured (%s)'%e2.reason
 
-        save_filename = "image-%d.%s"%(image_index,file_extension)
+        if not filename:
+            save_filename = "image-%d.%s"%(image_index,file_extension)
+        else:
+            save_filename = filename + '.'+file_extension
 
         # converting png files to jpg
         if file_extension == 'png':
@@ -122,9 +129,12 @@ def download_image(url):
 
     return {'url':url, 'success_status':success, 'error':error, 'saved_as': save_filename}
 
-def infer_vgg(filenames,batch_size):
-    prediction_list, confidence_list = vgg_inference.infer_from_vgg(filenames,batch_size)
+def infer_vgg(filenames):
+    prediction_list, confidence_list = vgg_inference.infer_from_vgg(filenames)
     return prediction_list, confidence_list
+
+def get_parameter(key,weights_or_bias):
+    return vgg_inference.get_weight_parameter_with_key(key,weights_or_bias)
 
 if __name__ == '__main__':
     app.run(debug=True)

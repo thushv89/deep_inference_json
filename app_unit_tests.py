@@ -1,7 +1,10 @@
-from query_service import app,reset_tf_graph
+from query_service import app,download_image,get_parameter
 import unittest
 import json
 from flask import request
+import os
+import numpy as np
+
 class FlaskServiceTests(unittest.TestCase):
 
     def setUp(self):
@@ -15,36 +18,60 @@ class FlaskServiceTests(unittest.TestCase):
         result = self.app.get('/')
         self.assertEqual(result.status_code,200)
 
-    def test_assert_infer_page_visit_success(self):
+    def test_assert_get_prediction_via_url_success(self):
         with app.test_client() as c:
             result = self.app.get('/infer?filename=input_url_test.json&batch_size=1')
             string_data = result.data.decode("utf-8")
 
         self.assertIn("Egyptian cat",string_data) and self.assertIn("balloon",string_data)
 
-    def test_assert_get_prediction_via_web_service(self):
+    def test_assert_get_prediction_via_json_success(self):
         with app.test_client() as c:
             result = c.get('/infer_from_url?url=https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/220px-Kittyply_edit1.jpg')
             string_data  =result.data.decode("utf-8")
 
         self.assertIn("Egyptian cat",string_data)
 
-    #def assert_download_weights_file_if_not_exist():
+    def test_assert_downloaded_images_are_persisted(self):
 
-    #def assert_if_weight_file_locally_exists():
+        download_image("https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/220px-Kittyply_edit1.jpg",'test-cat')
 
+        file_exists = os.path.exists('test-cat.jpg')
+        self.assertTrue(file_exists)
 
-    #def assert_downloaded_images_are_persisted():
+    def test_assert_convert_png_images_to_jpg(self):
 
-    #def assert_convert_png_images_to_jpg():
+        download_image("http://www.freepngimg.com/download/dog/8-dog-png-image-picture-download-dogs.png",'test-dog')
 
-    #def assert_vgg_weights_is_nonzero():
+        file_exists = os.path.exists('test-dog.jpg')
 
-    #def assert_vgg_bias_is_nonzero():
+        self.assertTrue(file_exists)
 
-    #def assert_prediction_class():
+    def test_assert_vgg_weights_is_nonzero(self):
+        any_nonzero = True
+        TF_SCOPES = ['conv1_1', 'conv1_2', 'conv2_1', 'conv2_2', 'conv3_1', 'conv3_2', 'conv3_3',
+                     'conv4_1', 'conv4_2', 'conv4_3', 'conv5_1', 'conv5_2', 'conv5_3',
+                     'fc6', 'fc7', 'fc8']
+        for scope in TF_SCOPES:
+            any_nonzero = np.any(get_parameter(scope,'weights'))
+            if not any_nonzero:
+                break
 
-    #def assert_batch_size_is_not_a_factor_of_input_image_count()
+        self.assertTrue(any_nonzero)
+
+    def test_assert_vgg_bias_is_nonzero(self):
+        any_nonzero = True
+        TF_SCOPES = ['conv1_1', 'conv1_2', 'conv2_1', 'conv2_2', 'conv3_1', 'conv3_2', 'conv3_3',
+                     'conv4_1', 'conv4_2', 'conv4_3', 'conv5_1', 'conv5_2', 'conv5_3',
+                     'fc6', 'fc7', 'fc8']
+        for scope in TF_SCOPES:
+            any_nonzero = np.any(get_parameter(scope, 'bias'))
+            print(get_parameter(scope,'bias'))
+            if not any_nonzero:
+                break
+
+        self.assertTrue(any_nonzero)
+
 
 
 if __name__ == '__main__':

@@ -117,7 +117,7 @@ def load_weights_from_file(weight_file):
                                           lambda: tf.assign(tf.get_variable(TF_BIAS_STR), weights[bias_key],name='assign_bias_op'))
 
                 _ = sess.run([tf_cond_weight_op,tf_cond_bias_op])
-
+                _ = sess.run([])
             op_count = len(graph.get_operations())
             var_count = len(tf.global_variables()) + len(tf.local_variables()) + len(tf.model_variables())
             print(op_count,var_count)
@@ -275,6 +275,7 @@ def preprocess_inputs_with_pil(filenames):
         else:
             image_batch = np.append(image_batch, np.reshape(im_arr, (1, 224, 224, 3)), axis=0)
 
+    return image_batch
 
 def infer_from_vgg(filenames):
     global sess,graph,logger, ops_created
@@ -306,3 +307,13 @@ def infer_from_vgg(filenames):
 
         return fname_pred_class_list,confidence_list
 
+def get_weight_parameter_with_key(key,weights_or_bias):
+    global sess
+    with sess.as_default() and graph.as_default():
+        with tf.variable_scope(key,reuse=True) as  sc:
+            if weights_or_bias == 'weights':
+                return sess.run(tf.get_variable(TF_WEIGHTS_STR))
+            elif weights_or_bias =='bias':
+                return sess.run(tf.get_variable(TF_BIAS_STR))
+            else:
+                raise NotImplementedError

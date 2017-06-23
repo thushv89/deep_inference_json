@@ -23,6 +23,22 @@ The architecture of the model can be found in this [paper](https://arxiv.org/pdf
 2. Go to http://127.0.0.1:5000 (For this prototype this will have to run locally)
 3. The home page should have a description about what you can do
 4. As an example try entering the following in the url bar http://127.0.0.1:5000/infer_from_url?url=https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/220px-Kittyply_edit1.jpg
+5. This should return a result similar to 
+```
+{
+  "download_status": {
+    "error": "None", 
+    "saved_as": "image-0.jpg", 
+    "success_status": true, 
+    "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/220px-Kittyply_edit1.jpg"
+  }, 
+  "result": {
+    "class": "Egyptian cat (Save filename: image-0.jpg)", 
+    "confidence": 0.0847, 
+    "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/220px-Kittyply_edit1.jpg"
+  }
+}
+```
 5. The script might download the weights (~ 500MB) and will require few minutes if not available locally Once weights are downloaded tensorflow will load those parameters in to tensorflow variables
 6. This should return a JSON with download_status (whether the image download was successful) and results (Class the image belongs to and the confidence)
 
