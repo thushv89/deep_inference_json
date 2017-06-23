@@ -48,6 +48,8 @@ The architecture of the model can be found in this [paper](https://arxiv.org/pdf
 * Infer with JSON file
    * ```ip_address/infer?filename=example.json```
    * example.json need to reside in your project home folder (where query_service.py is at)
+* Infer with JSON file with a confidence threshold
+   * ```ip_address/infer_with_conf?filename=example.json&confidence_threshold=0.01```
 
 ## Available functionality
 * Loads a deep model with a given weight file (.npz)
@@ -55,3 +57,5 @@ The architecture of the model can be found in this [paper](https://arxiv.org/pdf
 * Preprocess the given image by resizing the image to a fixed size
 * All images needs to be in jpg format but will automatically convert images to jpg for known formats. Otherwise will return an error
 * Unit tests are available for the application layer
+* Can infer the model with a confidence threshold to not show images with low confidence
+

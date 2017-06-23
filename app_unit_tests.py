@@ -39,6 +39,18 @@ class FlaskServiceTests(unittest.TestCase):
         file_exists = os.path.exists('test-cat.jpg')
         self.assertTrue(file_exists)
 
+    def test_assert_provide_proper_error_for_wrong_extension_of_image(self):
+        info_dict = download_image(
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/220px-Kittyply_edit1",
+            'test-cat')
+        self.assertEqual(info_dict['error'],'Please provide urls of images only of JPG(JPEG) or PNG format (https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/220px-Kittyply_edit1)')
+
+    def test_assert_wrong_url_return_propper_error_message(self):
+        info_dict = download_image(
+            "https://upload.wikimedia/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/220px-Kittyply_edit1.jpg",
+            'test-cat')
+        self.assertIn('A URL error occured',info_dict['error'])
+
     def test_assert_convert_png_images_to_jpg(self):
 
         download_image("http://www.freepngimg.com/download/dog/8-dog-png-image-picture-download-dogs.png",'test-dog')
@@ -66,13 +78,10 @@ class FlaskServiceTests(unittest.TestCase):
                      'fc6', 'fc7', 'fc8']
         for scope in TF_SCOPES:
             any_nonzero = np.any(get_parameter(scope, 'bias'))
-            print(get_parameter(scope,'bias'))
             if not any_nonzero:
                 break
 
         self.assertTrue(any_nonzero)
-
-
 
 if __name__ == '__main__':
     unittest.main()

@@ -7,6 +7,9 @@ import vgg_inference
 from PIL import Image
 import os
 
+image_index = 0
+infer_filenames = []
+
 
 app = Flask(__name__)
 
@@ -36,17 +39,19 @@ def get_urls():
     image_index, infer_filenames = 0, []
 
     json_fname = request.args['filename']
-    #batch_size = int(request.args['batch_size'])
 
     with open(json_fname) as data_file:
         data = json.load(data_file)
         url_array = data['image-urls']
         status_array = []
         filenames = []
+
         for url in url_array:
             info_dict = download_image(url)
             status_array.append(info_dict)
-            filenames.append(info_dict['saved_as'])
+            # add the filename only if it was successfully downloaded
+            if info_dict['success_status']:
+                filenames.append(info_dict['saved_as'])
 
         pred,conf = infer_vgg(filenames)
 
@@ -56,32 +61,38 @@ def get_urls():
 
         return jsonify({'download_status': status_array, 'results': results_arr})
 
-'''@app.route('/infer/', methods=['GET'])
-def get_urls():
+@app.route('/infer_with_conf', methods=['GET'])
+def get_urls_with_conf():
     global image_index,infer_filenames
     image_index, infer_filenames = 0, []
-    batch_size = 1
 
-    with open('input_url.json') as data_file:
+    json_fname = request.args['filename']
+    confidence_threshold = float(request.args['confidence_threshold'])
+
+    #batch_size = int(request.args['batch_size'])
+
+    with open(json_fname) as data_file:
         data = json.load(data_file)
         url_array = data['image-urls']
         status_array = []
         filenames = []
+
         for url in url_array:
             info_dict = download_image(url)
             status_array.append(info_dict)
-            filenames.append(info_dict['saved_files'])
+            # add the filename only if it was successfully downloaded
+            if info_dict['success_status']:
+                filenames.append(info_dict['saved_as'])
 
-        pred,conf = infer_vgg(filenames,batch_size)
+        pred,conf = infer_vgg(filenames,confidence_threshold)
 
         results_arr = []
         for url,p,c in zip(url_array,pred,conf):
             results_arr.append({"url":url,"class":p,"confidence":c})
 
-        return jsonify({'download_status': status_array, 'results': results_arr})'''
+        return jsonify({'download_status': status_array, 'results': results_arr})
 
-image_index = 0
-infer_filenames = []
+
 
 def reset_tf_graph():
     vgg_inference.reset_tensorflow_graph()
@@ -91,7 +102,8 @@ def download_image(url,filename=None,extension=None):
     error = 'None'
     success = False
     file_extension = url.split('.')[-1].lower()
-    downloaded_files = []
+    save_filename = ''
+
     if file_extension not in ['jpg','jpeg','png']:
         error = 'Please provide urls of images only of JPG(JPEG) or PNG format (%s)'%(url)
     else:
@@ -129,8 +141,8 @@ def download_image(url,filename=None,extension=None):
 
     return {'url':url, 'success_status':success, 'error':error, 'saved_as': save_filename}
 
-def infer_vgg(filenames):
-    prediction_list, confidence_list = vgg_inference.infer_from_vgg(filenames)
+def infer_vgg(filenames,confidence_threshold=None):
+    prediction_list, confidence_list = vgg_inference.infer_from_vgg(filenames,confidence_threshold)
     return prediction_list, confidence_list
 
 def get_parameter(key,weights_or_bias):

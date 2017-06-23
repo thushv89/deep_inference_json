@@ -118,9 +118,11 @@ def load_weights_from_file(weight_file):
 
                 _ = sess.run([tf_cond_weight_op,tf_cond_bias_op])
                 _ = sess.run([])
-            op_count = len(graph.get_operations())
-            var_count = len(tf.global_variables()) + len(tf.local_variables()) + len(tf.model_variables())
-            print(op_count,var_count)
+
+            # Can used to debug the counts of operations variables created
+            #op_count = len(graph.get_operations())
+            #var_count = len(tf.global_variables()) + len(tf.local_variables()) + len(tf.model_variables())
+            #print(op_count,var_count)
 
     del weights
 
@@ -277,7 +279,8 @@ def preprocess_inputs_with_pil(filenames):
 
     return image_batch
 
-def infer_from_vgg(filenames):
+
+def infer_from_vgg(filenames,confidence_threshold = None):
     global sess,graph,logger, ops_created
     logger.info('Recieved filenames from webservice: %s'%filenames)
 
@@ -300,12 +303,20 @@ def infer_from_vgg(filenames):
         prediction_list.extend(list(np.argmax(pred,axis=1)))
         confidence_list.extend(list(np.max(pred,axis=1)))
 
+        if confidence_threshold is not None:
+            selected_input_ind = np.where(np.asarray(confidence_list)>confidence_threshold)[0]
+            selected_input_ind = list(selected_input_ind.reshape(-1))
+            print(selected_input_ind)
+            prediction_list = [prediction_list[pp] for pp in selected_input_ind]
+            confidence_list = [confidence_list[pp] for pp in selected_input_ind]
+
         fname_pred_class_list = [imagenet_classes.class_names[pred] + ' (Save filename: ' + fname + ')' for fname,pred in zip(filenames,prediction_list)]
         confidence_list = [float(ceil(conf*10000)/10000) for conf in confidence_list] # rounding to 4 decimal places
 
         logger.info('Session finished')
 
         return fname_pred_class_list,confidence_list
+
 
 def get_weight_parameter_with_key(key,weights_or_bias):
     global sess
