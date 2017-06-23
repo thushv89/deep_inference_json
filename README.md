@@ -38,4 +38,3 @@ The architecture of the model can be found in this [paper](https://arxiv.org/pdf
 * Preprocess the given image by resizing the image to a fixed size
 * All images needs to be in jpg format but will automatically convert images to jpg for known formats. Otherwise will return an error
 * Unit tests are available for the application layer
-* 
