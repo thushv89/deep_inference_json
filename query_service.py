@@ -36,7 +36,7 @@ def get_urls():
     image_index, infer_filenames = 0, []
 
     json_fname = request.args['filename']
-    batch_size = int(request.args['batch_size'])
+    #batch_size = int(request.args['batch_size'])
 
     with open(json_fname) as data_file:
         data = json.load(data_file)
@@ -48,7 +48,7 @@ def get_urls():
             status_array.append(info_dict)
             filenames.append(info_dict['saved_as'])
 
-        pred,conf = infer_vgg(filenames,batch_size)
+        pred,conf = infer_vgg(filenames)
 
         results_arr = []
         for url,p,c in zip(url_array,pred,conf):

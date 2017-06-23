@@ -156,8 +156,16 @@ def infererence(tf_inputs):
 
     return out
 
+# ================================== VERY IMPORTANT ==================================
+        # Defining the coordinator and startring queue runner should happen ONLY AFTER you define your queues
+        # i.e. preprocess_inputs(...) Otherwise the process will hang forever
+        # https://stackoverflow.com/questions/35274405/tensorflow-training-using-input-queue-gets-stuck
+# ================================= EXAMPLE CODE FOR USING QUEUES =========================================
+        #tf_images = preprocess_inputs(filenames,batch_size)
+        #coord = tf.train.Coordinator()
+        #threads = tf.train.start_queue_runners(coord=coord, sess=sess)
 
-def preprocess_inputs(filenames, batch_size):
+def preprocess_inputs_with_tfqueue(filenames, batch_size):
     global sess,graph
     logger.info('Received filenames: %s',filenames)
     with sess.as_default() and graph.as_default() and tf.name_scope('preprocess'):
@@ -189,6 +197,29 @@ def preprocess_inputs(filenames, batch_size):
     return image_batch
 
 
+def preprocess_inputs_with_pil(filenames):
+    image_batch = None
+    for fn in filenames:
+        im = Image.open(fn)
+        im.thumbnail((224, 224), Image.ANTIALIAS)
+
+        im_arr = np.asarray(im, dtype=np.float32)
+        im_arr = (im_arr - np.mean(im_arr)) / np.std(im_arr)
+
+        im_shape = im_arr.shape
+
+        if im_shape[0] < 224:
+            im_arr = np.append(im_arr, np.zeros((224 - im_shape[0], im_shape[1], 3), dtype=np.float32), axis=0)
+            im_shape = im_arr.shape
+        if im_shape[1] < 224:
+            im_arr = np.append(im_arr, np.zeros((im_shape[0], 224 - im_shape[1], 3), dtype=np.float32), axis=1)
+            print('sed')
+            print(im_arr.shape)
+        if image_batch is None:
+            image_batch = np.reshape(im_arr, (1, 224, 224, 3))
+        else:
+            image_batch = np.append(image_batch, np.reshape(im_arr, (1, 224, 224, 3)), axis=0)
+
 ops_created = False
 
 logging_level = logging.DEBUG
@@ -216,7 +247,7 @@ logger.addHandler(console)
 graph = tf.get_default_graph()
 sess = tf.InteractiveSession(graph=graph)
 
-def infer_from_vgg(filenames,batch_size):
+def infer_from_vgg(filenames):
     global sess,graph,logger, ops_created
     logger.info('Recieved filenames from webservice: %s'%filenames)
 
@@ -225,50 +256,20 @@ def infer_from_vgg(filenames,batch_size):
         if not ops_created:
             load_weights_from_file('vgg16_weights.npz')
             ops_created = True
-        
 
-        # ================================== VERY IMPORTANT ==================================
-        # Defining the coordinator and startring queue runner should happen ONLY AFTER you define your queues
-        # i.e. preprocess_inputs(...) Otherwise the process will hang forever
-        # https://stackoverflow.com/questions/35274405/tensorflow-training-using-input-queue-gets-stuck
-        #tf_images = preprocess_inputs(filenames,batch_size)
-        #coord = tf.train.Coordinator()
-        #threads = tf.train.start_queue_runners(coord=coord, sess=sess)
-
-        image_batch = None
-        for fn in filenames:
-            im = Image.open(fn)
-            im.thumbnail((224,224), Image.ANTIALIAS)
-
-            im_arr = np.asarray(im,dtype=np.float32)
-            im_arr = (im_arr-np.mean(im_arr))/np.std(im_arr)
-
-            im_shape = im_arr.shape
-
-            if im_shape[0]<224:
-                im_arr = np.append(im_arr,np.zeros((224-im_shape[0],im_shape[1],3),dtype=np.float32),axis=0)
-                im_shape = im_arr.shape
-            if im_shape[1]<224:
-                im_arr = np.append(im_arr,np.zeros((im_shape[0],224-im_shape[1],3),dtype=np.float32),axis=1)
-                print('sed')
-                print(im_arr.shape)
-            if image_batch is None:
-                image_batch = np.reshape(im_arr,(1,224,224,3))
-            else:
-                image_batch = np.append(image_batch,np.reshape(im_arr,(1,224,224,3)),axis=0)
-
+        image_batch = preprocess_inputs_with_pil(filenames)
 
         tf_inputs = tf.placeholder(shape=[len(filenames),224,224,3],dtype=tf.float32)
-
         tf_prediction = infererence(tf_inputs)
-        prediction_list, top_5_list, confidence_list = [],[],[]
-        for i in range(ceil(len(filenames)*1.0/batch_size)):
-            pred = sess.run(tf_prediction,feed_dict={tf_inputs:image_batch})
 
-            prediction_list.extend(list(np.argmax(pred,axis=1)))
-            confidence_list.extend(list(np.max(pred,axis=1)))
-            top_5 = np.argsort(pred,axis=1)[:,995:]
-            top_5_list.append(list(top_5))
+        prediction_list, top_5_list, confidence_list = [],[],[]
+
+        pred = sess.run(tf_prediction,feed_dict={tf_inputs:image_batch})
+
+        prediction_list.extend(list(np.argmax(pred,axis=1)))
+        confidence_list.extend(list(np.max(pred,axis=1)))
+        top_5 = np.argsort(pred,axis=1)[:,995:]
+        top_5_list.append(list(top_5))
 
         fname_pred_class_list = [imagenet_classes.class_names[pred] + ' (Save filename: ' + fname + ')' for fname,pred in zip(filenames,prediction_list)]
         confidence_list = [float(ceil(conf*10000)/10000) for conf in confidence_list] # rounding to 4 decimal places
