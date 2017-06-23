@@ -24,8 +24,41 @@ import os
 import urllib
 from PIL import Image
 
+
+ops_created = False
+
+logging_level = logging.DEBUG
+logging_format = '[%(name)s] [%(funcName)s] %(message)s'
+
+TF_SCOPES = ['conv1_1','conv1_2','conv2_1','conv2_2','conv3_1','conv3_2','conv3_3',
+             'conv4_1','conv4_2','conv4_3','conv5_1','conv5_2','conv5_3',
+             'fc6','fc7','fc8']
+
+MAX_POOL_INDICES = [1,3,6,9,12]
+
+TF_WEIGHTS_STR = 'weights'
+TF_BIAS_STR = 'bias'
+
+WEIGHTS = {}
+BIASES = {}
+
+logger = logging.getLogger('Logger')
+logger.setLevel(logging.DEBUG)
+console = logging.StreamHandler(sys.stdout)
+console.setFormatter(logging.Formatter(logging_format))
+console.setLevel(logging_level)
+logger.addHandler(console)
+
+graph = tf.get_default_graph()
+sess = tf.InteractiveSession(graph=graph)
+
 # call this method if the weight file is not found
 def maybe_download(weight_filename):
+    '''
+    Download the weights file if required
+    :param weight_filename:
+    :return:
+    '''
     global logger
 
     if not os.path.exists(weight_filename):
@@ -44,13 +77,14 @@ def maybe_download(weight_filename):
 
 
 def load_weights_from_file(weight_file):
-    global logger, sess, graph
-    global TF_SCOPES,WEIGHTS,BIASES
     '''
     Loads the weights from a file and assign them to tensorflow variables
     :param weight_file: File name
     :return: the tensorflow operations to assign correct values to weights
     '''
+
+    global logger, sess, graph
+    global TF_SCOPES, WEIGHTS, BIASES
 
     # download the weight file if not existing
     # also notify user of the size of the weight file (large)
@@ -119,14 +153,16 @@ def build_vgg_variables(variable_shapes):
                     sess.run(tf.variables_initializer([weights,bias]))
 
                 except ValueError:
-                    #sc.reuse_variables()
-                    #weights = tf.get_variable(TF_WEIGHTS_STR)
-                    #bias = tf.get_variable(TF_BIAS_STR)
                     logger.debug('Variables in scope %s already initialized'%scope)
 
 
-
 def infererence(tf_inputs):
+    '''
+    Inferencing the model. The input (tf_inputs) is propagated through convolutions poolings
+    fully-connected layers to obtain the final softmax output
+    :param tf_inputs: a batch of images (tensorflow placeholder)
+    :return:
+    '''
     global logger
     global TF_SCOPES, TF_WEIGHTS_STR, TF_BIAS_STR, MAX_POOL_INDICES
 
@@ -156,16 +192,26 @@ def infererence(tf_inputs):
 
     return out
 
-# ================================== VERY IMPORTANT ==================================
+
+def preprocess_inputs_with_tfqueue(filenames, batch_size):
+    '''
+    An advance input pipeline implemented with tensorflow. However this is
+    quite ineffective for the given problem. So not using this at the moment
+    # ================================== VERY IMPORTANT ==================================
         # Defining the coordinator and startring queue runner should happen ONLY AFTER you define your queues
         # i.e. preprocess_inputs(...) Otherwise the process will hang forever
         # https://stackoverflow.com/questions/35274405/tensorflow-training-using-input-queue-gets-stuck
-# ================================= EXAMPLE CODE FOR USING QUEUES =========================================
+    # ================================= EXAMPLE CODE FOR USING QUEUES =========================================
         #tf_images = preprocess_inputs(filenames,batch_size)
         #coord = tf.train.Coordinator()
         #threads = tf.train.start_queue_runners(coord=coord, sess=sess)
-
-def preprocess_inputs_with_tfqueue(filenames, batch_size):
+        ... run training
+        #coord.request_stop()
+        #coord.join(threads)
+    :param filenames: filenames
+    :param batch_size: the size of a single batch that should be returned
+    :return:
+    '''
     global sess,graph
     logger.info('Received filenames: %s',filenames)
     with sess.as_default() and graph.as_default() and tf.name_scope('preprocess'):
@@ -198,9 +244,17 @@ def preprocess_inputs_with_tfqueue(filenames, batch_size):
 
 
 def preprocess_inputs_with_pil(filenames):
+    '''
+    Pre process images given in a set of filenames
+    :param filenames: names of the files
+    :return:
+    '''
     image_batch = None
     for fn in filenames:
         im = Image.open(fn)
+
+        # the model processes images of size 224, 224, 3
+        # so all images need to be resized to that size
         im.thumbnail((224, 224), Image.ANTIALIAS)
 
         im_arr = np.asarray(im, dtype=np.float32)
@@ -208,44 +262,19 @@ def preprocess_inputs_with_pil(filenames):
 
         im_shape = im_arr.shape
 
+        # If  the image width and height is below 224 pixels
         if im_shape[0] < 224:
             im_arr = np.append(im_arr, np.zeros((224 - im_shape[0], im_shape[1], 3), dtype=np.float32), axis=0)
             im_shape = im_arr.shape
         if im_shape[1] < 224:
             im_arr = np.append(im_arr, np.zeros((im_shape[0], 224 - im_shape[1], 3), dtype=np.float32), axis=1)
-            print('sed')
-            print(im_arr.shape)
+
+        # Creating an image batch using the preprocessed images
         if image_batch is None:
             image_batch = np.reshape(im_arr, (1, 224, 224, 3))
         else:
             image_batch = np.append(image_batch, np.reshape(im_arr, (1, 224, 224, 3)), axis=0)
 
-ops_created = False
-
-logging_level = logging.DEBUG
-logging_format = '[%(name)s] [%(funcName)s] %(message)s'
-
-TF_SCOPES = ['conv1_1','conv1_2','conv2_1','conv2_2','conv3_1','conv3_2','conv3_3',
-             'conv4_1','conv4_2','conv4_3','conv5_1','conv5_2','conv5_3',
-             'fc6','fc7','fc8']
-
-MAX_POOL_INDICES = [1,3,6,9,12]
-
-TF_WEIGHTS_STR = 'weights'
-TF_BIAS_STR = 'bias'
-
-WEIGHTS = {}
-BIASES = {}
-
-logger = logging.getLogger('Logger')
-logger.setLevel(logging.DEBUG)
-console = logging.StreamHandler(sys.stdout)
-console.setFormatter(logging.Formatter(logging_format))
-console.setLevel(logging_level)
-logger.addHandler(console)
-
-graph = tf.get_default_graph()
-sess = tf.InteractiveSession(graph=graph)
 
 def infer_from_vgg(filenames):
     global sess,graph,logger, ops_created
@@ -262,28 +291,18 @@ def infer_from_vgg(filenames):
         tf_inputs = tf.placeholder(shape=[len(filenames),224,224,3],dtype=tf.float32)
         tf_prediction = infererence(tf_inputs)
 
+        ## TODO: Provide the top 5 classes
         prediction_list, top_5_list, confidence_list = [],[],[]
 
         pred = sess.run(tf_prediction,feed_dict={tf_inputs:image_batch})
 
         prediction_list.extend(list(np.argmax(pred,axis=1)))
         confidence_list.extend(list(np.max(pred,axis=1)))
-        top_5 = np.argsort(pred,axis=1)[:,995:]
-        top_5_list.append(list(top_5))
 
         fname_pred_class_list = [imagenet_classes.class_names[pred] + ' (Save filename: ' + fname + ')' for fname,pred in zip(filenames,prediction_list)]
         confidence_list = [float(ceil(conf*10000)/10000) for conf in confidence_list] # rounding to 4 decimal places
 
-        print('Session ran')
+        logger.info('Session finished')
 
-        #coord.request_stop()
-        #coord.join(threads)
-
-        #tf.reset_default_graph()
         return fname_pred_class_list,confidence_list
-
-
-def reset_tensorflow_graph():
-    global sess,graph
-    pass
 

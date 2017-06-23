@@ -28,9 +28,10 @@ The architecture of the model can be found in this [paper](https://arxiv.org/pdf
 
 ## Available options
 * Infer with URL
-    * ip_address/infer_from_url?url="www.example.com/image.jpg"
+    * ```ip_address/infer_from_url?url=www.example.com/image.jpg```
 * Infer with JSON file
-   * ip_address/infer?filename="example.json"
+   * ```ip_address/infer?filename=example.json```
+   * example.json need to reside in your project home folder (where query_service.py is at)
 
 ## Available functionality
 * Loads a deep model with a given weight file (.npz)
