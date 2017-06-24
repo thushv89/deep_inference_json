@@ -22,7 +22,7 @@ def index():
            "The weights of the model were downloaded from <a href=\"https://www.cs.toronto.edu/~frossard/post/vgg16/\" target=\"_blank\">here</a>."
 
 @app.route('/infer_from_url')
-def get_url_from_json():
+def infer_from_url():
     url = request.args['url']
 
     infor_dict = download_image(url)
@@ -34,7 +34,7 @@ def get_url_from_json():
     return jsonify({'download_status': infor_dict, 'result': result})
 
 @app.route('/infer', methods=['GET'])
-def get_urls():
+def infer_from_file():
     global image_index,infer_filenames
     image_index, infer_filenames = 0, []
 
@@ -62,14 +62,12 @@ def get_urls():
         return jsonify({'download_status': status_array, 'results': results_arr})
 
 @app.route('/infer_with_conf', methods=['GET'])
-def get_urls_with_conf():
+def infer_from_file_with_conf():
     global image_index,infer_filenames
     image_index, infer_filenames = 0, []
 
     json_fname = request.args['filename']
     confidence_threshold = float(request.args['confidence_threshold'])
-
-    #batch_size = int(request.args['batch_size'])
 
     with open(json_fname) as data_file:
         data = json.load(data_file)
@@ -92,10 +90,6 @@ def get_urls_with_conf():
 
         return jsonify({'download_status': status_array, 'results': results_arr})
 
-
-
-def reset_tf_graph():
-    vgg_inference.reset_tensorflow_graph()
 
 def download_image(url,filename=None,extension=None):
     global image_index
@@ -122,6 +116,8 @@ def download_image(url,filename=None,extension=None):
         except urllib.error.URLError as e2:
             error = 'A URL error occured (%s)'%e2.reason
 
+        # if filename is not specified (for non-testing purposes)
+        # use the default format for naming
         if not filename:
             save_filename = "image-%d.%s"%(image_index,file_extension)
         else:
@@ -141,12 +137,18 @@ def download_image(url,filename=None,extension=None):
 
     return {'url':url, 'success_status':success, 'error':error, 'saved_as': save_filename}
 
+
 def infer_vgg(filenames,confidence_threshold=None):
     prediction_list, confidence_list = vgg_inference.infer_from_vgg(filenames,confidence_threshold)
     return prediction_list, confidence_list
 
+
 def get_parameter(key,weights_or_bias):
     return vgg_inference.get_weight_parameter_with_key(key,weights_or_bias)
+
+
+def maybe_download_weights()
+    vgg_inference.maybe_download('vgg16_weights.npz')
 
 if __name__ == '__main__':
     app.run(debug=True)

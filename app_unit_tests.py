@@ -1,4 +1,4 @@
-from query_service import app,download_image,get_parameter
+from query_service import app,download_image,get_parameter,maybe_download_weights
 import unittest
 import json
 from flask import request
@@ -13,6 +13,10 @@ class FlaskServiceTests(unittest.TestCase):
 
     def tearDown(self):
         pass
+
+    def test_assert_weight_file_locally_exists(self):
+        maybe_download_weights('vgg16_weights.npz')
+        self.assertTrue(os.path.exists('vgg16_weights.npz'))
 
     def test_assert_home_page_visit_success(self):
         result = self.app.get('/')
