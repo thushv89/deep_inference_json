@@ -15,6 +15,7 @@ vgg_inference.py - The script that loads the model and infer from it and return 
 query_service.py - The web service implemented with Flask  
 config.py - The constants used by various scripts  
 app_unit_tests.py - Unit Testing  
+input_url.json - Example JSON file for providing input URLs to the program  
 
 ## Introduction
 This repository implements a script for inferencing the classes of custom images using a pretrained deep network (VGG-16). The weights (parameters) are found [here](https://www.cs.toronto.edu/~frossard/post/vgg16/)
@@ -35,8 +36,8 @@ The architecture of the model can be found in this [paper](https://arxiv.org/pdf
     "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/220px-Kittyply_edit1.jpg"
   }, 
   "result": {
-    "class": "Egyptian cat (Save filename: image-0.jpg)", 
-    "confidence": 0.0847, 
+    "class": "tabby, tabby cat (Save filename: image-0.jpg)", 
+    "confidence": 0.419, 
     "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/220px-Kittyply_edit1.jpg"
   }
 }
@@ -54,6 +55,9 @@ The architecture of the model can be found in this [paper](https://arxiv.org/pdf
    * ```ip_address/infer_with_conf?filename=example.json&confidence_threshold=0.01```
 
 ## Available functionality
+* Can process images in batches when multiple URLs are provided in the input JSON file
+* Will use the GPU if available or will fall back to the CPU if a GPU is not detected
+* Can use a confidence threshold to discard uncertain inputs
 * Loads a deep model with a given weight file (.npz)
 * Web service to access the inference capabilities with the loaded model
 * Preprocess the given image by resizing the image to a fixed size
