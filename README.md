@@ -13,6 +13,8 @@ PIL (image processing)
 imagenet_classes.py - Class names of the imagenet dataset  
 vgg_inference.py - The script that loads the model and infer from it and return the class and confidence for an image  
 query_service.py - The web service implemented with Flask  
+config.py - The constants used by various scripts  
+app_unit_tests.py - Unit Testing  
 
 ## Introduction
 This repository implements a script for inferencing the classes of custom images using a pretrained deep network (VGG-16). The weights (parameters) are found [here](https://www.cs.toronto.edu/~frossard/post/vgg16/)
@@ -39,8 +41,8 @@ The architecture of the model can be found in this [paper](https://arxiv.org/pdf
   }
 }
 ```
-5. The script might download the weights (~ 500MB) and will require few minutes if not available locally Once weights are downloaded tensorflow will load those parameters in to tensorflow variables
-6. This should return a JSON with download_status (whether the image download was successful) and results (Class the image belongs to and the confidence)
+5. The script might download the weights (~ 500MB) and will require few minutes if not available locally. Once weights are downloaded tensorflow will load those parameters in to tensorflow variables
+
 
 ## Available options
 * Infer with URL
