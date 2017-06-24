@@ -246,15 +246,20 @@ def preprocess_inputs_with_pil(filenames):
     logger.debug('Preprocessing all images')
     for fn in filenames:
         logger.debug('\tProcessing %s'%fn)
-        im = Image.open(fn)
+        im = Image.open(fn,'r')
         logger.debug('\tOriginal size %s: ',np.asarray(im).shape)
         # the model processes images of size 224, 224, 3
         # so all images need to be resized to that size
+
         im.thumbnail((config.RESIZE_SIDE, config.RESIZE_SIDE), Image.ANTIALIAS)
 
-        im_arr = np.asarray(im, dtype=np.float32)
-        im_arr = (im_arr - np.mean(im_arr)) / np.std(im_arr)
+        im_uint8 = np.array(im).astype(np.uint8)
+        im_arr = im_uint8.astype(np.float32)
 
+        # A quite odd preprocessing step, the means of each RGB channel is subtracted as a normalization step
+        # and not divided by the standard deviation
+        # this is quite different to the standard normalization step, that is (img - img.mean) / img.std
+        im_arr = (im_arr - np.mean(np.mean(im_arr,axis=0),axis=0)) #/ (np.std(im_arr)+1e-5)
         im_shape = im_arr.shape
 
         # If  the image width and height is below 224 pixels
