@@ -147,8 +147,8 @@ def get_parameter(key,weights_or_bias):
     return vgg_inference.get_weight_parameter_with_key(key,weights_or_bias)
 
 
-def maybe_download_weights()
-    vgg_inference.maybe_download('vgg16_weights.npz')
+def maybe_download_weights(weight_file):
+    vgg_inference.maybe_download(weight_file)
 
 if __name__ == '__main__':
     app.run(debug=True)
