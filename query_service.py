@@ -6,10 +6,25 @@ import urllib
 import vgg_inference
 from PIL import Image
 import os
+import logging
+import sys
+
+logging_level = logging.DEBUG
+logging_format = '[%(name)s] [%(funcName)s] %(message)s'
 
 image_index = 0
 infer_filenames = []
 
+logger = logging.getLogger('ServiceLogger')
+logger.setLevel(logging.DEBUG)
+console = logging.StreamHandler(sys.stdout)
+console.setFormatter(logging.Formatter(logging_format))
+console.setLevel(logging_level)
+fileHandler = logging.FileHandler('service.log', mode='w')
+fileHandler.setFormatter(logging.Formatter(logging_format))
+fileHandler.setLevel(logging.DEBUG)
+logger.addHandler(console)
+logger.addHandler(fileHandler)
 
 app = Flask(__name__)
 
@@ -19,16 +34,28 @@ def index():
            "<p>This service allows you to query a pretrained deep network with images and get the class the image belongs to along with a confidence value. " +\
            "The model used for inference is VGG-16 and is pretrained on ILSVRC data." + \
            "The original paper of the model can be found <a href=\"https://arxiv.org/pdf/1409.1556.pdf\" target=\"_blank\">here</a>. " + \
-           "The weights of the model were downloaded from <a href=\"https://www.cs.toronto.edu/~frossard/post/vgg16/\" target=\"_blank\">here</a>."
+           "The weights of the model were downloaded from <a href=\"https://www.cs.toronto.edu/~frossard/post/vgg16/\" target=\"_blank\">here</a>.</p>" + \
+           "<h2> Available Services</h2>" + \
+           "<ul><li><em>ip_address/infer_from_url?url=www.example.com<em></li>" + \
+           "<li><em>ip_address/infer?filename=example.json</em></li>" + \
+           "<li><em>ip_address/infer_with_conf?filename=example.json&confidence_threshold=0.001</em></li></ul>"
 
 @app.route('/infer_from_url')
 def infer_from_url():
-    url = request.args['url']
 
+    logger.debug('infer_from_url was selected')
+    url = request.args['url']
+    logger.debug('\tURL: %s',url)
     infor_dict = download_image(url)
+    logger.debug('\tDownload success status: %s',infor_dict['success_status'])
+    logger.debug('\tErrors: %s',infor_dict['error'])
     filename = [infor_dict['saved_as']]
 
     pred,conf = infer_vgg(filename)
+    logger.debug('\tResults summary')
+    logger.debug('\t\tPredicted class: %s',pred[0])
+    logger.debug('\t\tConfidence: %s', conf[0])
+
     result = {"url": url, "class": pred[0], "confidence": float(conf[0])}
 
     return jsonify({'download_status': infor_dict, 'result': result})
@@ -40,26 +67,40 @@ def infer_from_file():
 
     json_fname = request.args['filename']
 
-    with open(json_fname) as data_file:
-        data = json.load(data_file)
-        url_array = data['image-urls']
-        status_array = []
-        filenames = []
+    logger.debug('infer/ was selected')
+    try:
+        with open(json_fname) as data_file:
+            data = json.load(data_file)
+    except FileNotFoundError:
+        logger.debug('The given JSON file %s was not found',json_fname)
+        return jsonify({'download_status': False, 'results': -1})
 
-        for url in url_array:
-            info_dict = download_image(url)
-            status_array.append(info_dict)
-            # add the filename only if it was successfully downloaded
-            if info_dict['success_status']:
-                filenames.append(info_dict['saved_as'])
+    url_array = data['image-urls']
+    status_array = []
+    filenames = []
 
-        pred,conf = infer_vgg(filenames)
+    for url in url_array:
+        logger.debug('\tDownloading %s',url)
+        info_dict = download_image(url)
+        logger.debug('\t\tDownload success: %s: ', info_dict['success_status'])
 
-        results_arr = []
-        for url,p,c in zip(url_array,pred,conf):
-            results_arr.append({"url":url,"class":p,"confidence":c})
+        status_array.append(info_dict)
+        # add the filename only if it was successfully downloaded
+        if info_dict['success_status']:
+            filenames.append(info_dict['saved_as'])
 
-        return jsonify({'download_status': status_array, 'results': results_arr})
+    logger.debug('Saved file name list: %s',filenames)
+    pred,conf = infer_vgg(filenames)
+    logger.debug('Prediction results: ')
+    logger.debug(pred)
+    logger.debug(conf)
+
+    results_arr = []
+    for url,p,c in zip(url_array,pred,conf):
+        results_arr.append({"url":url,"class":p,"confidence":c})
+
+    logger.debug('Obtained the inferences\n')
+    return jsonify({'download_status': status_array, 'results': results_arr})
 
 @app.route('/infer_with_conf', methods=['GET'])
 def infer_from_file_with_conf():
@@ -69,26 +110,39 @@ def infer_from_file_with_conf():
     json_fname = request.args['filename']
     confidence_threshold = float(request.args['confidence_threshold'])
 
-    with open(json_fname) as data_file:
-        data = json.load(data_file)
-        url_array = data['image-urls']
-        status_array = []
-        filenames = []
+    logger.debug('infer_with_conf/ was selected')
 
-        for url in url_array:
-            info_dict = download_image(url)
-            status_array.append(info_dict)
-            # add the filename only if it was successfully downloaded
-            if info_dict['success_status']:
-                filenames.append(info_dict['saved_as'])
+    try:
+        with open(json_fname) as data_file:
+            data = json.load(data_file)
+    except FileNotFoundError:
+        logger.debug('The given JSON file %s was not found', json_fname)
+        return jsonify({'download_status': False, 'results': -1})
 
-        pred,conf = infer_vgg(filenames,confidence_threshold)
+    url_array = data['image-urls']
+    status_array = []
+    filenames = []
 
-        results_arr = []
-        for url,p,c in zip(url_array,pred,conf):
-            results_arr.append({"url":url,"class":p,"confidence":c})
+    for url in url_array:
+        logger.debug('\tDownloading %s', url)
+        info_dict = download_image(url)
+        logger.debug('\t\tDownload success: %s: ', info_dict['success_status'])
+        status_array.append(info_dict)
+        # add the filename only if it was successfully downloaded
+        if info_dict['success_status']:
+            filenames.append(info_dict['saved_as'])
 
-        return jsonify({'download_status': status_array, 'results': results_arr})
+    logger.debug('Saved file name list: %s', filenames)
+    pred,conf = infer_vgg(filenames,confidence_threshold)
+    logger.debug('Prediction results: ')
+    logger.debug(pred)
+    logger.debug(conf)
+
+    results_arr = []
+    for url,p,c in zip(url_array,pred,conf):
+        results_arr.append({"url":url,"class":p,"confidence":c})
+
+    return jsonify({'download_status': status_array, 'results': results_arr})
 
 
 def download_image(url,filename=None,extension=None):
@@ -98,6 +152,7 @@ def download_image(url,filename=None,extension=None):
     file_extension = url.split('.')[-1].lower()
     save_filename = ''
 
+    logger.debug('Downloading images ...')
     if file_extension not in ['jpg','jpeg','png']:
         error = 'Please provide urls of images only of JPG(JPEG) or PNG format (%s)'%(url)
     else:
@@ -132,7 +187,8 @@ def download_image(url,filename=None,extension=None):
             im.save(save_filename)
 
         image_index += 1
-        print('Downloaded image')
+        logger.debug('\tError: %s',error)
+        logger.debug('\tDownloaded image\n')
         success = True
 
     return {'url':url, 'success_status':success, 'error':error, 'saved_as': save_filename}

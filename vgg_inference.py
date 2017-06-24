@@ -23,31 +23,23 @@ from math import ceil
 import os
 import urllib
 from PIL import Image
-
+import config
 
 ops_created = False
 
 logging_level = logging.DEBUG
 logging_format = '[%(name)s] [%(funcName)s] %(message)s'
 
-TF_SCOPES = ['conv1_1','conv1_2','conv2_1','conv2_2','conv3_1','conv3_2','conv3_3',
-             'conv4_1','conv4_2','conv4_3','conv5_1','conv5_2','conv5_3',
-             'fc6','fc7','fc8']
-
-MAX_POOL_INDICES = [1,3,6,9,12]
-
-TF_WEIGHTS_STR = 'weights'
-TF_BIAS_STR = 'bias'
-
-WEIGHTS = {}
-BIASES = {}
-
 logger = logging.getLogger('Logger')
 logger.setLevel(logging.DEBUG)
 console = logging.StreamHandler(sys.stdout)
 console.setFormatter(logging.Formatter(logging_format))
 console.setLevel(logging_level)
+fileHandler = logging.FileHandler('main.log', mode='w')
+fileHandler.setFormatter(logging.Formatter(logging_format))
+fileHandler.setLevel(logging.DEBUG)
 logger.addHandler(console)
+logger.addHandler(fileHandler)
 
 graph = tf.get_default_graph()
 sess = tf.InteractiveSession(graph=graph)
@@ -62,16 +54,18 @@ def maybe_download(weight_filename):
     global logger
 
     if not os.path.exists(weight_filename):
-        filename, _ = urllib.request.urlretrieve('https://www.cs.toronto.edu/~frossard/vgg16/vgg16_weights.npz', weight_filename)
+        filename, _ = urllib.request.urlretrieve(config.WEIGHTS_URL, weight_filename)
         logger.warning("The file exceeds 500MB in size. But is a necessity")
     else:
         logger.info('Found the weights file locally. No need to download')
 
     statinfo = os.stat(weight_filename)
-    if statinfo.st_size > 512 * 1024 * 1024:
+    if statinfo.st_size > config.WEIGHTS_FILESIZE_BYTES:
         logger.info('Found and verified %s' % weight_filename)
     else:
         logger.info('File size: %d'%statinfo.st_size)
+        logger.info('Failed to verify ' + weight_filename +
+                    '. Can you get to it with a browser? %s'%'https://www.cs.toronto.edu/~frossard/vgg16/vgg16_weights.npz')
         raise Exception(
             'Failed to verify ' + weight_filename + '. Can you get to it with a browser? %s'%'https://www.cs.toronto.edu/~frossard/vgg16/vgg16_weights.npz')
 
@@ -84,7 +78,6 @@ def load_weights_from_file(weight_file):
     '''
 
     global logger, sess, graph
-    global TF_SCOPES, WEIGHTS, BIASES
 
     # download the weight file if not existing
     # also notify user of the size of the weight file (large)
@@ -96,25 +89,25 @@ def load_weights_from_file(weight_file):
     for i, k in enumerate(keys):
         logger.info('\tKey ID: %d, Key: %s, Weight shape: %s'%(i, k, list(np.shape(weights[k]))))
         var_shapes[k] = list(np.shape(weights[k]))
+    logger.debug('')
 
     logger.debug('Variable shapes dictionary')
-    logger.debug('%s\n',var_shapes)
+    logger.debug('\t%s\n',var_shapes)
     build_vgg_variables(var_shapes)
 
     with sess.as_default() and graph.as_default():
-        #tf.global_variables_initializer().run()
 
-        for si,scope in enumerate(TF_SCOPES):
+        for si,scope in enumerate(config.TF_SCOPES):
             logger.debug('\tAssigining values for scope %s',scope)
             with tf.variable_scope(scope,reuse=True):
                 weight_key, bias_key = scope + '_W', scope + '_b'
-                tf_cond_weight_op = tf.cond(tf.reduce_all(tf.not_equal(tf.get_variable(TF_WEIGHTS_STR),tf.zeros(var_shapes[weight_key],dtype=tf.float32))),
+                tf_cond_weight_op = tf.cond(tf.reduce_all(tf.not_equal(tf.get_variable(config.TF_WEIGHTS_STR),tf.zeros(var_shapes[weight_key],dtype=tf.float32))),
                                             lambda: tf.constant(-1,dtype=tf.float32),
-                                            lambda: tf.assign(tf.get_variable(TF_WEIGHTS_STR),weights[weight_key]),name='assign_weights_op')
+                                            lambda: tf.assign(tf.get_variable(config.TF_WEIGHTS_STR),weights[weight_key]),name='assign_weights_op')
 
-                tf_cond_bias_op = tf.cond(tf.reduce_all(tf.not_equal(tf.get_variable(TF_BIAS_STR),tf.zeros(var_shapes[bias_key],dtype=tf.float32))),
+                tf_cond_bias_op = tf.cond(tf.reduce_all(tf.not_equal(tf.get_variable(config.TF_BIAS_STR),tf.zeros(var_shapes[bias_key],dtype=tf.float32))),
                                           lambda: tf.constant(-1,dtype=tf.float32),
-                                          lambda: tf.assign(tf.get_variable(TF_BIAS_STR), weights[bias_key],name='assign_bias_op'))
+                                          lambda: tf.assign(tf.get_variable(config.TF_BIAS_STR), weights[bias_key],name='assign_bias_op'))
 
                 _ = sess.run([tf_cond_weight_op,tf_cond_bias_op])
                 _ = sess.run([])
@@ -123,7 +116,7 @@ def load_weights_from_file(weight_file):
             #op_count = len(graph.get_operations())
             #var_count = len(tf.global_variables()) + len(tf.local_variables()) + len(tf.model_variables())
             #print(op_count,var_count)
-
+        logger.debug('')
     del weights
 
 
@@ -135,27 +128,26 @@ def build_vgg_variables(variable_shapes):
     :return:
     '''
     global logger,sess,graph
-    global TF_SCOPES,WEIGHTS,BIASES
 
     logger.info("Building VGG Variables (Tensorflow)...")
     with sess.as_default and graph.as_default():
-        for si,scope in enumerate(TF_SCOPES):
+        for si,scope in enumerate(config.TF_SCOPES):
             with tf.variable_scope(scope) as sc:
-                weight_key, bias_key = TF_SCOPES[si]+'_W', TF_SCOPES[si]+'_b'
+                weight_key, bias_key = config.TF_SCOPES[si]+'_W', config.TF_SCOPES[si]+'_b'
 
                 # Try Except because if you try get_variable with an intializer and
                 # the variable exists, you will get a ValueError saying the variable exists
                 #
                 try:
-                    weights = tf.get_variable(TF_WEIGHTS_STR, variable_shapes[weight_key],
+                    weights = tf.get_variable(config.TF_WEIGHTS_STR, variable_shapes[weight_key],
                                               initializer=tf.constant_initializer(0.0))
-                    bias = tf.get_variable(TF_BIAS_STR, variable_shapes[bias_key],
+                    bias = tf.get_variable(config.TF_BIAS_STR, variable_shapes[bias_key],
                                            initializer = tf.constant_initializer(0.0))
 
                     sess.run(tf.variables_initializer([weights,bias]))
 
                 except ValueError:
-                    logger.debug('Variables in scope %s already initialized'%scope)
+                    logger.debug('Variables in scope %s already initialized\n'%scope)
 
 
 def infererence(tf_inputs):
@@ -166,11 +158,10 @@ def infererence(tf_inputs):
     :return:
     '''
     global logger
-    global TF_SCOPES, TF_WEIGHTS_STR, TF_BIAS_STR, MAX_POOL_INDICES
 
-    for si, scope in enumerate(TF_SCOPES):
+    for si, scope in enumerate(config.TF_SCOPES):
         with tf.variable_scope(scope,reuse=True) as sc:
-            weight, bias = tf.get_variable(TF_WEIGHTS_STR), tf.get_variable(TF_BIAS_STR)
+            weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
 
             if 'fc' not in scope:
                 if si == 0:
@@ -189,7 +180,7 @@ def infererence(tf_inputs):
                 else:
                     h = tf.nn.relu(tf.matmul(h, weight) + bias, name= 'hidden')
 
-            if si in MAX_POOL_INDICES:
+            if si in config.MAX_POOL_INDICES:
                 h = tf.nn.max_pool(h,[1,2,2,1],[1,2,2,1],padding='SAME',name='hidden')
 
     return out
@@ -241,7 +232,7 @@ def preprocess_inputs_with_tfqueue(filenames, batch_size):
 
         # to use record reader we need to use a Queue either random
 
-    print('Preprocessing done')
+    print('Preprocessing done\n')
     return image_batch
 
 
@@ -252,12 +243,14 @@ def preprocess_inputs_with_pil(filenames):
     :return:
     '''
     image_batch = None
+    logger.debug('Preprocessing all images')
     for fn in filenames:
+        logger.debug('\tProcessing %s'%fn)
         im = Image.open(fn)
-
+        logger.debug('\tOriginal size %s: ',np.asarray(im).shape)
         # the model processes images of size 224, 224, 3
         # so all images need to be resized to that size
-        im.thumbnail((224, 224), Image.ANTIALIAS)
+        im.thumbnail((config.RESIZE_SIDE, config.RESIZE_SIDE), Image.ANTIALIAS)
 
         im_arr = np.asarray(im, dtype=np.float32)
         im_arr = (im_arr - np.mean(im_arr)) / np.std(im_arr)
@@ -265,55 +258,62 @@ def preprocess_inputs_with_pil(filenames):
         im_shape = im_arr.shape
 
         # If  the image width and height is below 224 pixels
-        if im_shape[0] < 224:
-            im_arr = np.append(im_arr, np.zeros((224 - im_shape[0], im_shape[1], 3), dtype=np.float32), axis=0)
+        if im_shape[0] < config.RESIZE_SIDE:
+            im_arr = np.append(im_arr, np.zeros((config.RESIZE_SIDE - im_shape[0], im_shape[1], 3), dtype=np.float32), axis=0)
             im_shape = im_arr.shape
-        if im_shape[1] < 224:
-            im_arr = np.append(im_arr, np.zeros((im_shape[0], 224 - im_shape[1], 3), dtype=np.float32), axis=1)
+        if im_shape[1] < config.RESIZE_SIDE:
+            im_arr = np.append(im_arr, np.zeros((im_shape[0], config.RESIZE_SIDE - im_shape[1], 3), dtype=np.float32), axis=1)
+        logger.debug('\tSize after resizing: %s\n',im_arr.shape)
 
         # Creating an image batch using the preprocessed images
         if image_batch is None:
-            image_batch = np.reshape(im_arr, (1, 224, 224, 3))
+            image_batch = np.reshape(im_arr, (1, config.RESIZE_SIDE, config.RESIZE_SIDE, 3))
         else:
-            image_batch = np.append(image_batch, np.reshape(im_arr, (1, 224, 224, 3)), axis=0)
+            image_batch = np.append(image_batch, np.reshape(im_arr, (1, config.RESIZE_SIDE, config.RESIZE_SIDE, 3)), axis=0)
 
+    logger.debug('Created an image batch of size: %s\n',image_batch.shape)
     return image_batch
 
 
 def infer_from_vgg(filenames,confidence_threshold = None):
     global sess,graph,logger, ops_created
-    logger.info('Recieved filenames from webservice: %s'%filenames)
+    logger.info('Recieved filenames from webservice: %s\n',filenames)
 
     with sess.as_default() and graph.as_default():
 
         if not ops_created:
-            load_weights_from_file('vgg16_weights.npz')
+            logger.info('Loading weights...\n')
+            load_weights_from_file(config.WEIGHTS_FILENAME)
             ops_created = True
 
         image_batch = preprocess_inputs_with_pil(filenames)
 
-        tf_inputs = tf.placeholder(shape=[len(filenames),224,224,3],dtype=tf.float32)
+        tf_inputs = tf.placeholder(shape=[len(filenames),config.RESIZE_SIDE,config.RESIZE_SIDE,3],dtype=tf.float32)
         tf_prediction = infererence(tf_inputs)
 
         ## TODO: Provide the top 5 classes
         prediction_list, top_5_list, confidence_list = [],[],[]
 
         pred = sess.run(tf_prediction,feed_dict={tf_inputs:image_batch})
+        prediction_list.extend(list(np.argmax(pred, axis=1)))
+        confidence_list.extend(list(np.max(pred, axis=1)))
 
-        prediction_list.extend(list(np.argmax(pred,axis=1)))
-        confidence_list.extend(list(np.max(pred,axis=1)))
+        logger.debug('Results summary')
+        for fn,p,c in zip(filenames,prediction_list,confidence_list):
+            logger.debug('\tFilename: %s, Predicted class: %s, Confidence: %.4f',fn,imagenet_classes.class_names[p],c)
 
         if confidence_threshold is not None:
+            logger.debug('Returning the results only with a confidence higher than %.5f',confidence_threshold)
             selected_input_ind = np.where(np.asarray(confidence_list)>confidence_threshold)[0]
             selected_input_ind = list(selected_input_ind.reshape(-1))
-            print(selected_input_ind)
+            logger.debug('Selected indices (> confidence threshold) %s',selected_input_ind)
             prediction_list = [prediction_list[pp] for pp in selected_input_ind]
             confidence_list = [confidence_list[pp] for pp in selected_input_ind]
 
         fname_pred_class_list = [imagenet_classes.class_names[pred] + ' (Save filename: ' + fname + ')' for fname,pred in zip(filenames,prediction_list)]
         confidence_list = [float(ceil(conf*10000)/10000) for conf in confidence_list] # rounding to 4 decimal places
 
-        logger.info('Session finished')
+        logger.info('Session finished\n')
 
         return fname_pred_class_list,confidence_list
 
@@ -321,10 +321,10 @@ def infer_from_vgg(filenames,confidence_threshold = None):
 def get_weight_parameter_with_key(key,weights_or_bias):
     global sess
     with sess.as_default() and graph.as_default():
-        with tf.variable_scope(key,reuse=True) as  sc:
+        with tf.variable_scope(key,reuse=True) as sc:
             if weights_or_bias == 'weights':
-                return sess.run(tf.get_variable(TF_WEIGHTS_STR))
+                return sess.run(tf.get_variable(config.TF_WEIGHTS_STR))
             elif weights_or_bias =='bias':
-                return sess.run(tf.get_variable(TF_BIAS_STR))
+                return sess.run(tf.get_variable(config.TF_BIAS_STR))
             else:
                 raise NotImplementedError
