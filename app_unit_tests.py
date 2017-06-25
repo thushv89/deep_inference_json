@@ -27,14 +27,14 @@ class FlaskServiceTests(unittest.TestCase):
             result = self.app.get('/infer?filename=input_url_test.json&batch_size=1')
             string_data = result.data.decode("utf-8")
 
-        self.assertIn("Egyptian cat",string_data) and self.assertIn("balloon",string_data)
+        self.assertIn("tabby, tabby cat",string_data) and self.assertIn("balloon",string_data)
 
     def test_assert_get_prediction_via_json_success(self):
         with app.test_client() as c:
             result = c.get('/infer_from_url?url=https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Kittyply_edit1.jpg/220px-Kittyply_edit1.jpg')
             string_data  =result.data.decode("utf-8")
 
-        self.assertIn("Egyptian cat",string_data)
+        self.assertIn("tabby, tabby cat",string_data)
 
     def test_assert_downloaded_images_are_persisted(self):
 
